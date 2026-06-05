@@ -37,32 +37,80 @@ function isValidLeadPayload(body: unknown): body is LeadPayload {
   );
 }
 
+function displayValue(value: string): string {
+  return value.trim();
+}
+
+function formatDetailLines(message: string): string[] {
+  const trimmed = message.trim();
+  if (!trimmed) return [];
+
+  return trimmed
+    .split(" | ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => `  ${part}`);
+}
+
+function formatConversationSummary(summary: string): string {
+  const trimmed = summary.trim();
+  if (!trimmed) return "  (not provided)";
+
+  return trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `  ${line}`)
+    .join("\n");
+}
+
 function formatLeadEmailBody(lead: LeadPayload): string {
-  return `NEW LEAD
+  const contactLines = [
+    ["Name", lead.name],
+    ["Phone", lead.phone],
+    ["Email", lead.email],
+    ["Address", lead.address],
+  ]
+    .map(([label, value]) => {
+      const text = displayValue(value);
+      return text ? `  ${label}: ${text}` : "";
+    })
+    .filter(Boolean);
 
-Request Type:
-${lead.requestType.trim()}
+  const detailLines = formatDetailLines(lead.message);
+  const urgency = displayValue(lead.urgency);
+  const hasUrgencyInDetails = detailLines.some((line) =>
+    /^  Urgency:/i.test(line)
+  );
 
-Name:
-${lead.name.trim()}
+  if (urgency && !hasUrgencyInDetails) {
+    detailLines.push(`  Urgency: ${urgency}`);
+  }
 
-Phone:
-${lead.phone.trim()}
+  const sections = [
+    "PLATINUM ELECTRICAL CONTRACTORS",
+    "New Chatbot Lead",
+    "========================================",
+    "",
+    "REQUEST TYPE",
+    `  ${displayValue(lead.requestType)}`,
+    "",
+    "CONTACT INFORMATION",
+    ...(contactLines.length > 0 ? contactLines : ["  (not provided)"]),
+  ];
 
-Email:
-${lead.email.trim() || "(not provided)"}
+  if (detailLines.length > 0) {
+    sections.push("", "REQUEST DETAILS", ...detailLines);
+  }
 
-Address:
-${lead.address.trim() || "(not provided)"}
+  sections.push(
+    "",
+    "----------------------------------------",
+    "CONVERSATION SUMMARY",
+    formatConversationSummary(lead.conversationSummary)
+  );
 
-Urgency:
-${lead.urgency.trim() || "(not provided)"}
-
-Message:
-${lead.message.trim() || "(not provided)"}
-
-Conversation Summary:
-${lead.conversationSummary.trim() || "(not provided)"}`;
+  return sections.join("\n");
 }
 
 export async function POST(request: Request) {

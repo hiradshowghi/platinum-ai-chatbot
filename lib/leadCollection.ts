@@ -78,7 +78,10 @@ const BOT_FIELD_PATTERNS: Array<[RegExp, ExpectedField]> = [
     "issue",
   ],
   [/when (?:did|does) the issue|when.*start|issue start/i, "issueStarted"],
-  [/urgency|how soon|how urgent|wait until|can wait/i, "urgency"],
+  [
+    /issue urgent|how urgent|how soon|wait a few days|can it wait|can wait|urgency level/i,
+    "urgency",
+  ],
   [
     /installation address|street address|address for the generator|address where the generator|service visit address|what is the address|your address/i,
     "address",
@@ -125,9 +128,38 @@ export function isCasualMessage(text: string): boolean {
   return false;
 }
 
+function normalizeUrgencyAnswer(text: string): string {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (/\b(urgent|asap|immediately|right away|emergency|today)\b/.test(lower)) {
+    return "Urgent";
+  }
+  if (/\b(can wait|few days|not urgent|no rush|whenever|routine)\b/.test(lower)) {
+    return "Can wait a few days";
+  }
+
+  return trimmed;
+}
+
+function looksLikeUrgencyAnswer(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  return /\b(urgent|asap|can wait|few days|not urgent|no rush|whenever|routine|immediately|emergency)\b/.test(
+    lower
+  );
+}
+
 export function inferExpectedFieldFromBotMessage(
   botMessage: string
 ): ExpectedField {
+  if (
+    /issue urgent|how urgent|how soon|wait a few days|can it wait|can wait|urgency level/i.test(
+      botMessage
+    )
+  ) {
+    return "urgency";
+  }
+
   const matches: ExpectedField[] = [];
 
   for (const [pattern, field] of BOT_FIELD_PATTERNS) {
@@ -252,7 +284,7 @@ function applyValueForExpectedField(
     case "issueStarted":
       return lockField(lead, "issueStarted", trimmed);
     case "urgency":
-      return lockField(lead, "urgency", trimmed);
+      return lockField(lead, "urgency", normalizeUrgencyAnswer(trimmed));
     case "name":
       return lockField(lead, "name", trimmed);
     case "phone": {
@@ -336,6 +368,14 @@ export function applyUserTurnToCollectedLead(
 
   if (expectedField) {
     return applyValueForExpectedField(next, expectedField, trimmed);
+  }
+
+  if (
+    !next.locked.urgency &&
+    next.locked.issueStarted &&
+    looksLikeUrgencyAnswer(trimmed)
+  ) {
+    return lockField(next, "urgency", normalizeUrgencyAnswer(trimmed));
   }
 
   if (!next.locked.issue && inferRequestTypeFromText(trimmed) === next.requestType) {
