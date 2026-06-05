@@ -59,13 +59,19 @@ const PHONE_PATTERN =
   /(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/;
 
 const CASUAL_MESSAGE_PATTERN =
-  /^(no[,.\s!]*(that'?s?\s*(it|all)|nothing else|nope|i'?m good|all good|that'?s everything|no thanks|nothing more|that is all|that is it)|yes[,.\s!]*(that'?s?\s*(it|all)|nothing else)|ok(?:ay)?[,.\s!]*(thanks|that'?s?\s*(it|all))?|thanks|thank you)[\s!.?]*$/i;
+  /^(no[,.\s!]*(that'?s?\s*(it|all)|nothing else|nope|i'?m good|all good|that'?s everything|no thanks|nothing more|that is all|that is it)|that'?s?\s*(it|all|everything)|yes[,.\s!]*(that'?s?\s*(it|all)|nothing else)|ok(?:ay)?[,.\s!]*(thanks|that'?s?\s*(it|all))?|thanks|thank you|i\s+don'?t\s+need\s+(anything|anything else))[\s!.?]*$/i;
 
 const BOT_FIELD_PATTERNS: Array<[RegExp, ExpectedField]> = [
-  [/residential or commercial|home or business|property type/i, "propertyType"],
-  [/whole-home|essential circuit|backup type|backup goal/i, "backupType"],
-  [/new installation|replacement|install type/i, "installationType"],
-  [/city|location|where.*located(?!.*address)/i, "location"],
+  [/residential or commercial|home or business|for a home or a business|property type/i, "propertyType"],
+  [
+    /whole-home|whole home|essential circuit|backup power|backup type|backup goal/i,
+    "backupType",
+  ],
+  [
+    /new generator installation|new installation|replacement for an existing|replacement|install type/i,
+    "installationType",
+  ],
+  [/city or location|what city|location is the installation|where.*located(?!.*address)/i, "location"],
   [/brand|model|generator model/i, "generatorModel"],
   [
     /describe the issue|what(?:'s| is) (?:the )?(?:issue|problem|happening)|issue description|not turning|not starting/i,
@@ -73,14 +79,23 @@ const BOT_FIELD_PATTERNS: Array<[RegExp, ExpectedField]> = [
   ],
   [/when (?:did|does) the issue|when.*start|issue start/i, "issueStarted"],
   [/urgency|how soon|how urgent|wait until|can wait/i, "urgency"],
-  [/may I have your name|what is your name|your name\b/i, "name"],
-  [/phone number|best number|number to reach|phone\b/i, "phone"],
-  [/email address|your email|email\b/i, "email"],
   [
-    /address where the generator|service visit|installation address|what is the address|street address|your address/i,
+    /installation address|street address|address for the generator|address where the generator|service visit address|what is the address|your address/i,
     "address",
   ],
-  [/anything else|is there anything else|anything more/i, null],
+  [
+    /what is your email|your email address|provide your email|email address\?/i,
+    "email",
+  ],
+  [
+    /phone number|provide your phone|your phone number|best number|number to reach|could you provide your phone/i,
+    "phone",
+  ],
+  [
+    /full name|may I have your name|may I have your full name|what is your name|provide your name|your name\b/i,
+    "name",
+  ],
+  [/anything else|is there anything else|anything more|ready for review/i, null],
 ];
 
 export function createEmptyCollectedLead(): CollectedLead {
@@ -113,12 +128,21 @@ export function isCasualMessage(text: string): boolean {
 export function inferExpectedFieldFromBotMessage(
   botMessage: string
 ): ExpectedField {
+  const matches: ExpectedField[] = [];
+
   for (const [pattern, field] of BOT_FIELD_PATTERNS) {
     if (pattern.test(botMessage)) {
-      return field;
+      matches.push(field);
     }
   }
-  return null;
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  // When a bot message mentions a prior field (e.g. "That email looks valid...")
+  // and asks a new question, use the last matched field.
+  return matches[matches.length - 1] ?? null;
 }
 
 function inferRequestTypeFromText(text: string): string {
@@ -130,7 +154,9 @@ function inferRequestTypeFromText(text: string): string {
   const lower = text.toLowerCase();
   if (
     lower.includes("new generator quote") ||
-    /(?:get|need|request).{0,20}quote/.test(lower)
+    /(?:get|need|request|want|looking).{0,25}\bquote\b/.test(lower) ||
+    (/\bquote\b/.test(lower) &&
+      /want|looking|need|get|like|interested/.test(lower))
   ) {
     return "new generator quote";
   }
@@ -183,6 +209,10 @@ function applyValueForExpectedField(
     return lead;
   }
 
+  if (lead.locked[expectedField]) {
+    return lead;
+  }
+
   const trimmed = text.trim();
 
   switch (expectedField) {
@@ -195,7 +225,7 @@ function applyValueForExpectedField(
       }
       return lockField(lead, "propertyType", trimmed);
     case "backupType":
-      if (/\bwhole[\s-]?home\b/i.test(trimmed)) {
+      if (/\bwhole[\s-]?home\b/i.test(trimmed) || /^whole$/i.test(trimmed)) {
         return lockField(lead, "backupType", "Whole-home backup");
       }
       if (/\bessential|circuit/i.test(trimmed)) {
@@ -230,7 +260,8 @@ function applyValueForExpectedField(
       return lockField(lead, "phone", phone);
     }
     case "email": {
-      const email = trimmed.match(EMAIL_PATTERN)?.[0] ?? trimmed;
+      const email = trimmed.match(EMAIL_PATTERN)?.[0];
+      if (!email) return lead;
       return lockField(lead, "email", email);
     }
     case "address":

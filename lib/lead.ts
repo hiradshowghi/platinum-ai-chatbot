@@ -86,14 +86,17 @@ export function hasSalesQuoteQualification(
   const homeOrBusiness =
     /\b(home|house|business|commercial|residential)\b/.test(text);
   const backup =
-    /\b(whole[\s-]?home|essential|circuit|backup|partial)\b/.test(text);
+    /\b(whole[\s-]?home|essential|circuit|backup|partial|\bwhole\b)/.test(
+      text
+    );
   const installType =
     /\b(new install|new installation|replacement|replace|replacing)\b/.test(
       text
     ) || /\bnew\b/.test(text);
   const hasLocation =
     lead.address.trim().length > 5 ||
-    /\b(ottawa|toronto|kingston|london|hamilton|belleville|peterborough|barrie|oshawa|ontario)\b/.test(
+    /location:\s*.+/i.test(lead.message) ||
+    /\b(ottawa|toronto|kingston|london|hamilton|belleville|peterborough|barrie|oshawa|ontario)\b/i.test(
       text
     );
 
